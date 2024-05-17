@@ -13,16 +13,17 @@ def parse_clauses(kb):
             processed_clauses.append((premises, conclusion.strip()))
         else:
             symbols.add(clause.strip())
-            processed_clauses.append(([], clause.strip()))  # Treat as fact
+            processed_clauses.append(([], clause.strip())) 
+            
     return processed_clauses, list(symbols)
 
 def evaluate(processed_clauses, assignment):
     for premises, conclusion in processed_clauses:
-        if premises:  # There are premises leading to a conclusion
+        if premises:
             if all(assignment.get(premise.strip(), False) for premise in premises):
                 if not assignment.get(conclusion, False):
                     return False
-        else:  # It's a fact
+        else: 
             if not assignment.get(conclusion, False):
                 return False
     return True
@@ -36,7 +37,6 @@ def truth_table_check(kb, query):
         assignment = dict(zip(symbols, values))
         if evaluate(processed_clauses, assignment):
             valid_models.append(assignment)
-            # Check if the query is false in any valid model
             if not assignment.get(query, False):
                 all_valid_models_satisfy_query = False
 
