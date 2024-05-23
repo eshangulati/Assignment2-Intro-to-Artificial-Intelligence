@@ -1,6 +1,6 @@
 def parse_clause(clause):
     """
-    Parses a clause into a list of literals.
+    Parses a clause into a list of literals. Assumes literals are separated by '||' and handles negation.
     """
     clause = clause.replace(" ", "")
     if clause.startswith("(") and clause.endswith(")"):
@@ -12,7 +12,16 @@ def parse_kb(kb):
     """
     Parses the knowledge base into a list of clauses.
     """
-    return [parse_clause(clause) for clause in kb]
+    parsed_kb = []
+    for clause in kb:
+        # Handle conjunctions within each clause
+        if '&' in clause:
+            parts = clause.split('&')
+            for part in parts:
+                parsed_kb.append(parse_clause(part))
+        else:
+            parsed_kb.append(parse_clause(clause))
+    return parsed_kb
 
 def is_literal_true(literal, assignment):
     """
