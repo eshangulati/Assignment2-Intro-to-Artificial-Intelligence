@@ -1,64 +1,59 @@
-def parse_clause(clause):
-    """
-    Parses a clause into a list of literals. Assumes literals are separated by '||' and handles negation.
-    """
-    clause = clause.replace(" ", "")
-    if clause.startswith("(") and clause.endswith(")"):
-        clause = clause[1:-1]
-    literals = clause.split("||")
-    return literals
+def parse_expression_to_cnf(expression):
+    """ Recursively converts logical expressions into CNF. """
+    expression = expression.replace(" ", "")
+    if "<=>" in expression:
+        parts = expression.split("<=>")
+        left_cnf = parse_expression_to_cnf(parts[0])
+        right_cnf = parse_expression_to_cnf(parts[1])
+        # Equivalent to (left_cnf and right_cnf) or (not left_cnf and not right_cnf)
+        return f"(({left_cnf}) & ({right_cnf})) | (~({left_cnf}) & ~({right_cnf}))"
+    elif "=>" in expression:
+        parts = expression.split("=>")
+        left_cnf = parse_expression_to_cnf(parts[0])
+        right_cnf = parse_expression_to_cnf(parts[1])
+        # Equivalent to not left_cnf or right_cnf
+        return f"(~({left_cnf}) || ({right_cnf}))"
+    elif "&" in expression:
+        parts = expression.split("&")
+        return ' & '.join(parse_expression_to_cnf(part) for part in parts)
+    elif "||" in expression:
+        parts = expression.split("||")
+        return ' || '.join(parse_expression_to_cnf(part) for part in parts)
+    elif expression.startswith("~"):
+        sub_expr = expression[1:]
+        return f"~({parse_expression_to_cnf(sub_expr)})"
+    return expression
 
 def parse_kb(kb):
-    """
-    Parses the knowledge base into a list of clauses.
-    """
+    """ Parses the knowledge base into a list of CNF clauses. """
     parsed_kb = []
     for clause in kb:
-        # Handle conjunctions within each clause
-        if '&' in clause:
-            parts = clause.split('&')
-            for part in parts:
-                parsed_kb.append(parse_clause(part))
-        else:
-            parsed_kb.append(parse_clause(clause))
+        cnf_clause = parse_expression_to_cnf(clause)
+        # Simplify parsing of clauses
+        parts = cnf_clause.split(' & ')
+        for part in parts:
+            inner_parts = part.strip('()').split(' || ')
+            parsed_kb.append(inner_parts)
     return parsed_kb
 
-def is_literal_true(literal, assignment):
-    """
-    Evaluates whether a literal is true under the given assignment.
-    """
-    if literal.startswith("~"):
-        return not assignment.get(literal[1:], False)
-    return assignment.get(literal, False)
-
 def unit_propagate(clauses, assignment):
-    """
-    Applies unit propagation to simplify the clauses.
-    """
-    unit_clauses = [c for c in clauses if len(c) == 1]
-    while unit_clauses:
-        unit = unit_clauses[0]
-        literal = unit[0]
-        var = literal[1:] if literal.startswith("~") else literal
-        value = not literal.startswith("~")
-        assignment[var] = value
-
-        new_clauses = []
-        for clause in clauses:
-            if literal in clause:
-                continue
-            new_clause = [l for l in clause if l != "~" + var and l != var]
-            new_clauses.append(new_clause)
-        
-        clauses = new_clauses
-        unit_clauses = [c for c in clauses if len(c) == 1]
+    """ Applies unit propagation to simplify the clauses. """
+    while True:
+        unit_clauses = [clause for clause in clauses if len(clause) == 1]
+        if not unit_clauses:
+            break
+        for unit in unit_clauses:
+            literal = unit[0]
+            var = literal[1:] if literal.startswith("~") else literal
+            value = not literal.startswith("~")
+            assignment[var] = value
+            clauses = [c for c in clauses if literal not in c]
+            clauses = [[l for l in clause if l != f"~{var}" and l != var] for clause in clauses]
     return clauses, assignment
 
 def pure_literal_elimination(clauses, assignment):
-    """
-    Applies pure literal elimination to simplify the clauses.
-    """
-    literals = [l for clause in clauses for l in clause]
+    """ Applies pure literal elimination to simplify the clauses. """
+    literals = {l for clause in clauses for l in clause}
     pure_literals = set(literals)
     for literal in literals:
         if "~" + literal in pure_literals:
@@ -69,75 +64,42 @@ def pure_literal_elimination(clauses, assignment):
         var = literal[1:] if literal.startswith("~") else literal
         value = not literal.startswith("~")
         assignment[var] = value
-
         clauses = [clause for clause in clauses if literal not in clause]
     
     return clauses, assignment
 
 def dpll(clauses, assignment):
-    """
-    DPLL recursive function.
-    """
-    print(f"DPLL invoked with clauses: {clauses} and assignment: {assignment}")
+    """ DPLL recursive function. """
     clauses, assignment = unit_propagate(clauses, assignment)
-    print(f"After unit propagation: {clauses} and assignment: {assignment}")
     if not clauses:
-        return assignment
-    if any([not clause for clause in clauses]):
-        return False
+        return True, assignment
+    if any(not clause for clause in clauses):
+        return False, None
 
     clauses, assignment = pure_literal_elimination(clauses, assignment)
-    print(f"After pure literal elimination: {clauses} and assignment: {assignment}")
-    
     if not clauses:
-        return assignment
-    if any([not clause for clause in clauses]):
-        return False
+        return True, assignment
+    if any(not clause for clause in clauses):
+        return False, None
 
     var = next(l for clause in clauses for l in clause if l not in assignment)
     new_assignment = assignment.copy()
-
     for value in [True, False]:
         new_assignment[var] = value
-        print(f"Trying {var} = {value}")
-        result = dpll(clauses, new_assignment)
+        result, final_assignment = dpll(clauses, new_assignment)
         if result:
-            return result
-
-    return False
+            return True, final_assignment
+    return False, None
 
 def dpll_satisfiable(kb):
+    """ Checks if the knowledge base is satisfiable using DPLL. """
     clauses = parse_kb(kb)
-    assignment = {}
-    result = dpll(clauses, assignment)
-    return result if result else False
-
-def parse_expression(expression):
-    expression = expression.replace(" ", "")
-    if "<=>" in expression:
-        parts = expression.split("<=>", 1)
-        left, right = map(parse_expression, parts)
-        return lambda v: left(v) == right(v)
-    if "=>" in expression:
-        parts = expression.split("=>", 1)
-        left, right = map(parse_expression, parts)
-        return lambda v: not left(v) or right(v)
-    if "||" in expression:
-        parts = expression.split("||")
-        sub_expressions = list(map(parse_expression, parts))
-        return lambda v: any(sub_expr(v) for sub_expr in sub_expressions)
-    if "&" in expression:
-        parts = expression.split("&")
-        sub_expressions = list(map(parse_expression, parts))
-        return lambda v: all(sub_expr(v) for sub_expr in sub_expressions)
-    if expression.startswith("~"):
-        subexpr = parse_expression(expression[1:])
-        return lambda v: not subexpr(v)
-    return lambda v: v.get(expression, False)
+    result, assignment = dpll(clauses, {})
+    return result, assignment
 
 def truth_table_check(kb, query):
-    query_negated = "~" + query
-    extended_kb = kb + [query_negated]
-    print("Extended KB for satisfiability check:")
-    print(extended_kb)
-    return "YES" if not dpll_satisfiable(extended_kb) else "NO"
+    """ Checks if the negation of the query is satisfiable, which implies the KB does not entail the query. """
+    extended_kb = kb[:]
+    extended_kb.append(f"~({query})")
+    satisfiable, assignment = dpll_satisfiable(extended_kb)
+    return "NO" if satisfiable else "YES"
